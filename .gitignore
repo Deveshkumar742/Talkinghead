@@ -1,0 +1,34 @@
+# Source footage and voice reference — large, personal, mirrored to a private
+# Kaggle Dataset instead. Never commit likeness or voice data.
+assets/*
+!assets/README.md
+
+# Pipeline artifact cache
+work/
+out/
+*.mp4
+*.wav
+*.mp3
+!samples/*.txt
+
+# Model weights
+weights/
+*.ckpt
+*.safetensors
+*.pth
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Local overrides
+.env

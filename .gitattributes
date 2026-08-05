@@ -1,0 +1,21 @@
+# Normalize line endings in the repository to LF.
+#
+# Without this, committing from Windows (core.autocrlf=true) and uploading via
+# the GitHub web UI produce blobs that differ on every single line, which makes
+# diffs unreadable and review impossible. It happened once already.
+#
+# The compute stages run on Linux (Kaggle), so LF is the right canonical form.
+* text=auto eol=lf
+
+# Notebooks are JSON; treat as text so diffs work, but never merge them
+# automatically -- a merged .ipynb is usually corrupt.
+*.ipynb text eol=lf merge=binary
+
+# Media is binary. These are gitignored, but declare it so an accidental
+# `git add -f` cannot mangle them with line-ending conversion.
+*.mp4 binary
+*.wav binary
+*.mp3 binary
+*.pt binary
+*.ckpt binary
+*.safetensors binary

@@ -304,9 +304,12 @@ def profiles() -> None:
     """List resolution profiles."""
     for name, profile in PROFILES.items():
         typer.secho(f"  {name}", bold=True)
-        typer.echo(f"    output     {profile.output_width}x{profile.output_height}")
-        typer.echo(f"    face crop  {profile.face_crop}px")
-        typer.echo(f"    notes      {profile.notes}")
+        typer.echo(f"    output      {profile.output_width}x{profile.output_height}")
+        typer.echo(f"    face crop   {profile.face_crop}px")
+        typer.echo(f"    checkpoint  hf.co/{profile.hf_repo}")
+        typer.echo(f"    num_frames  {profile.num_frames}")
+        typer.echo(f"    notes       {profile.notes}")
+        typer.echo("")
 
 
 @app.command()

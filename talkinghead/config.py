@@ -43,11 +43,17 @@ class TrustedSource(BaseModel):
 #: we ship. Revisions are deliberately set to ``main`` until Phase 0 confirms a
 #: working commit, then frozen to that SHA -- see ``freeze_revisions`` below.
 TRUSTED_SOURCES: dict[str, TrustedSource] = {
+    # Apache 2.0 covers the code and both checkpoint releases, so licensing is a
+    # single entry. Which checkpoint gets used is a per-profile decision -- 1.6
+    # was trained at 512, 1.5 at 256 -- so see Profile.hf_repo for that.
+    #
+    # Revision pinned to the commit Phase 0 actually exercised, rather than a
+    # moving branch.
     "latentsync": TrustedSource(
-        name="LatentSync 1.6",
+        name="LatentSync (1.5 @ 256 / 1.6 @ 512)",
         repo="https://github.com/bytedance/LatentSync",
         hf_repo="ByteDance/LatentSync-1.6",
-        revision="main",
+        revision="a229c3948406bc2cf6eaf4873e662e70c6a04746",
         license="Apache-2.0",
     ),
     "musetalk": TrustedSource(
@@ -134,37 +140,70 @@ class Profile(BaseModel):
     The face-crop size and the output height are coupled: rendering taller than
     roughly the crop size wastes nothing but *does* make the regenerated mouth
     visibly softer than the untouched rest of the frame.
+
+    ``hf_repo`` differs per profile because the two crop sizes need *different
+    checkpoints*: 1.6 was trained at 512 and 1.5 at 256. Running one at the
+    other's resolution is a mismatch, so the checkpoint source belongs to the
+    profile rather than being a single project-wide constant.
+
+    ``num_frames`` is here because Phase 0 measured it as the setting that
+    decides whether a profile fits at all -- see the note on PROFILE_1080P.
     """
 
     name: str
     output_width: int
     output_height: int
     face_crop: int
+    hf_repo: str
     checkpoint: str
+    num_frames: int
     notes: str
 
 
 #: Primary. LatentSync 1.6 was retrained on 512x512 video specifically to fix
 #: the blurry teeth/lips of 1.5, which is what makes 1080p viable here.
+#:
+#: MEASURED on a Kaggle T4 (14.56 GiB usable), 2026-08-05: the upstream default
+#: num_frames=16 peaks at 13.65 GB and dies with CUDA OOM inside
+#: vae.encode(masked_image) -- about 1 GB short. The VAE encodes all num_frames
+#: images as one batch, so num_frames is the lever, and halving it roughly halves
+#: that allocation. num_frames below is therefore 8, not the upstream 16.
+#:
+#: Re-run notebooks/phase0_vram_spike.ipynb to confirm on your own accelerator.
+#: A P100 offers 16280 MiB against the T4's 15360 MiB -- roughly 0.9 GB more,
+#: which on its own was not quite the ~1.02 GB shortfall.
 PROFILE_1080P = Profile(
     name="1080p",
     output_width=1920,
     output_height=1080,
     face_crop=512,
+    hf_repo="ByteDance/LatentSync-1.6",
     checkpoint="latentsync_unet.pt",
-    notes="LatentSync 1.6 @ 512. Requires Phase 0 VRAM confirmation on a 16GB GPU.",
+    num_frames=8,
+    notes=(
+        "LatentSync 1.6 @ 512. num_frames reduced from the upstream 16 to 8: "
+        "16 OOMs on a 15GB T4 at 13.65GB peak. Verify with the Phase 0 spike."
+    ),
 )
 
-#: Fallback if 512 inference does not fit in Kaggle's 16GB. Downscaling the full
-#: frame to 720p pulls the whole image toward the mouth's true resolution, which
-#: hides most of the 256-crop softness.
+#: Fallback when 512 does not fit. Downscaling the full frame to 720p pulls the
+#: whole image toward the mouth's true resolution, which hides most of the
+#: 256-crop softness -- so this is a genuine option rather than a consolation.
+#:
+#: Note the different checkpoint: 256 needs LatentSync *1.5*, since 1.6's weights
+#: were trained at 512.
 PROFILE_720P = Profile(
     name="720p",
     output_width=1280,
     output_height=720,
     face_crop=256,
+    hf_repo="ByteDance/LatentSync-1.5",
     checkpoint="latentsync_unet.pt",
-    notes="LatentSync 1.5 @ 256. Fallback; fits comfortably in 16GB.",
+    num_frames=16,
+    notes=(
+        "LatentSync 1.5 @ 256. Quarter the pixels per frame of the 512 path, so "
+        "the upstream num_frames=16 fits comfortably in 15GB."
+    ),
 )
 
 PROFILES: dict[str, Profile] = {p.name: p for p in (PROFILE_1080P, PROFILE_720P)}

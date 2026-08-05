@@ -178,6 +178,26 @@ class TestProfiles:
         assert PROFILES["720p"].face_crop == 256
         assert PROFILES["720p"].output_height == 720
 
+    def test_each_crop_size_names_its_matching_checkpoint(self):
+        # 1.6 was trained at 512 and 1.5 at 256; pairing a checkpoint with the
+        # wrong resolution is a silent mismatch rather than an error, so the
+        # association is pinned here.
+        assert PROFILES["1080p"].hf_repo == "ByteDance/LatentSync-1.6"
+        assert PROFILES["720p"].hf_repo == "ByteDance/LatentSync-1.5"
+
+    def test_1080p_reduces_num_frames_below_upstream_default(self):
+        # Phase 0 measured the upstream num_frames=16 at 13.65GB peak, OOMing on
+        # a 14.56GiB T4. Reverting this to 16 reintroduces that failure.
+        assert PROFILES["1080p"].num_frames == 8
+
+    def test_720p_keeps_the_upstream_num_frames(self):
+        # A quarter the pixels per frame, so 16 fits comfortably.
+        assert PROFILES["720p"].num_frames == 16
+
+    @pytest.mark.parametrize("name,profile", sorted(PROFILES.items()))
+    def test_num_frames_is_positive(self, name, profile):
+        assert profile.num_frames > 0, name
+
     @pytest.mark.parametrize("name,profile", sorted(PROFILES.items()))
     def test_output_is_16_by_9(self, name, profile):
         ratio = profile.output_width / profile.output_height

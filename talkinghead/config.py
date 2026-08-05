@@ -236,6 +236,40 @@ class Settings(BaseSettings):
         return detect().host is Host.KAGGLE
 
 
+#: How deep to look for an asset inside a mounted dataset. Kaggle preserves the
+#: directory structure of whatever was uploaded, so files often arrive nested one
+#: level down -- particularly from a ZIP, or from dragging in a folder.
+_ASSET_SEARCH_DEPTH = 2
+
+
+def find_asset(mount: Path, filename: str) -> Path:
+    """Locate ``filename`` inside a mounted dataset.
+
+    Checks the mount root first, then progressively deeper, and returns the
+    shallowest match. Falls back to ``mount / filename`` when nothing is found,
+    so callers still produce a sensible "missing file" message rather than a
+    confusing ``None``.
+
+    This exists because a dataset that *looks* correctly uploaded can still have
+    its files one directory down, and the resulting "base_loop.mp4 not found" is
+    baffling when you can plainly see the file in Kaggle's file browser.
+    """
+    if not mount.exists():
+        return mount / filename
+
+    direct = mount / filename
+    if direct.is_file():
+        return direct
+
+    for depth in range(2, _ASSET_SEARCH_DEPTH + 1):
+        pattern = "/".join(["*"] * (depth - 1) + [filename])
+        for candidate in sorted(mount.glob(pattern)):
+            if candidate.is_file():
+                return candidate
+
+    return direct
+
+
 def load_settings(**overrides: object) -> Settings:
     """Build settings, then adapt paths to whichever host we are on.
 
@@ -256,8 +290,8 @@ def load_settings(**overrides: object) -> Settings:
         mount = Path("/kaggle/input") / settings.kaggle_dataset
         if mount.exists():
             settings.assets_dir = mount
-            settings.base_loop = mount / "base_loop.mp4"
-            settings.reference_wav = mount / "reference.wav"
+            settings.base_loop = find_asset(mount, "base_loop.mp4")
+            settings.reference_wav = find_asset(mount, "reference.wav")
             settings.weights_dir = mount / "weights"
         settings.work_dir = host.work_root / "work"
         settings.out_dir = host.work_root / "out"
@@ -267,8 +301,8 @@ def load_settings(**overrides: object) -> Settings:
             mount = host.input_root / "talkinghead"
             if mount.exists():
                 settings.assets_dir = mount
-                settings.base_loop = mount / "base_loop.mp4"
-                settings.reference_wav = mount / "reference.wav"
+                settings.base_loop = find_asset(mount, "base_loop.mp4")
+                settings.reference_wav = find_asset(mount, "reference.wav")
                 settings.weights_dir = mount / "weights"
         settings.work_dir = host.work_root / "work"
         settings.out_dir = host.work_root / "out"

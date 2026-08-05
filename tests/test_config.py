@@ -16,6 +16,7 @@ from talkinghead.config import (
     LicenseError,
     Settings,
     assert_commercially_licensed,
+    find_asset,
     load_settings,
 )
 
@@ -71,6 +72,54 @@ class TestTrustedSources:
     @pytest.mark.parametrize("key,src", sorted(TRUSTED_SOURCES.items()))
     def test_every_source_is_pinned(self, key, src):
         assert src.revision, f"{key} has no pinned revision"
+
+
+class TestFindAsset:
+    """Kaggle preserves upload structure, so assets are often nested one level.
+
+    A dataset that looks correctly uploaded in Kaggle's file browser can still
+    have its files a directory down -- from a ZIP, or from dragging a folder in.
+    The resulting "base_loop.mp4 not found" is baffling when you can see the file
+    on screen, so the lookup tolerates it.
+    """
+
+    def test_finds_asset_at_mount_root(self, tmp_path):
+        (tmp_path / "base_loop.mp4").write_bytes(b"x")
+        assert find_asset(tmp_path, "base_loop.mp4") == tmp_path / "base_loop.mp4"
+
+    def test_finds_asset_nested_one_level(self, tmp_path):
+        nested = tmp_path / "assets"
+        nested.mkdir()
+        (nested / "base_loop.mp4").write_bytes(b"x")
+        assert find_asset(tmp_path, "base_loop.mp4") == nested / "base_loop.mp4"
+
+    def test_prefers_root_over_nested(self, tmp_path):
+        (tmp_path / "reference.wav").write_bytes(b"x")
+        nested = tmp_path / "sub"
+        nested.mkdir()
+        (nested / "reference.wav").write_bytes(b"y")
+        assert find_asset(tmp_path, "reference.wav") == tmp_path / "reference.wav"
+
+    def test_falls_back_to_root_path_when_absent(self, tmp_path):
+        # Returns a sensible path so callers can report what was missing.
+        assert find_asset(tmp_path, "nope.mp4") == tmp_path / "nope.mp4"
+
+    def test_falls_back_when_mount_does_not_exist(self, tmp_path):
+        ghost = tmp_path / "not-mounted"
+        assert find_asset(ghost, "base_loop.mp4") == ghost / "base_loop.mp4"
+
+    def test_ignores_a_directory_with_the_target_name(self, tmp_path):
+        (tmp_path / "base_loop.mp4").mkdir()
+        # A directory is not an asset; fall through rather than returning it.
+        assert find_asset(tmp_path, "base_loop.mp4") == tmp_path / "base_loop.mp4"
+        assert not find_asset(tmp_path, "base_loop.mp4").is_file()
+
+    def test_does_not_search_arbitrarily_deep(self, tmp_path):
+        # Bounded depth: an unrelated deep match should not be silently adopted.
+        deep = tmp_path / "a" / "b" / "c"
+        deep.mkdir(parents=True)
+        (deep / "reference.wav").write_bytes(b"x")
+        assert find_asset(tmp_path, "reference.wav") == tmp_path / "reference.wav"
 
 
 class TestProfiles:

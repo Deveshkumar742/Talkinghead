@@ -153,6 +153,32 @@ def check(
         problems.append(f"Missing base loop: {settings.base_loop}")
         typer.secho("  [FAIL] base     not recorded", fg=typer.colors.RED)
 
+    # When an asset is missing but the mount is present, the cause is almost
+    # always a filename or nesting mismatch rather than a failed upload. Showing
+    # the actual contents turns "not recorded" into something actionable.
+    assets_missing = not (
+        settings.reference_wav.exists() and settings.base_loop.exists()
+    )
+    if assets_missing and settings.assets_dir.exists():
+        found = sorted(
+            p for p in settings.assets_dir.rglob("*")
+            if p.is_file() and p.suffix.lower() in {".mp4", ".mov", ".wav", ".mp3", ".m4a"}
+        )
+        typer.echo(f"\n  Media actually present in {settings.assets_dir}:")
+        if found:
+            for p in found[:20]:
+                size_mb = p.stat().st_size / 1024**2
+                typer.echo(f"    {size_mb:8.1f} MB  {p.relative_to(settings.assets_dir)}")
+            typer.secho(
+                "\n  The filenames must be exactly 'base_loop.mp4' and "
+                "'reference.wav'. Rename them in the dataset and re-upload a new "
+                "version, or point at them directly:\n"
+                "    TH_BASE_LOOP=<path> TH_REFERENCE_WAV=<path> talkinghead check",
+                fg=typer.colors.YELLOW,
+            )
+        else:
+            typer.echo("    (no media files found at all)")
+
     typer.echo("")
     for warning in warnings:
         typer.secho(f"  warning: {warning}", fg=typer.colors.YELLOW)

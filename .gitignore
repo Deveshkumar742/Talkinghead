@@ -32,3 +32,12 @@ htmlcov/
 
 # Local overrides
 .env
+
+# Credentials. The Kaggle token belongs in ~/.kaggle/kaggle.json, never in the
+# repo -- but ignore it here too, because a stray copy in the project directory
+# is exactly how a secret gets committed by accident.
+kaggle.json
+.kaggle/
+*.pem
+*_token
+*.key

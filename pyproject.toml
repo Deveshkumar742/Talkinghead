@@ -16,8 +16,16 @@ dependencies = [
 # Heavy ML deps are NOT top-level. Phase 1 (script prep, ffmpeg assembly, CLI)
 # must install and test on a laptop with no GPU and no torch.
 [project.optional-dependencies]
-tts = ["chatterbox-tts>=0.1.1", "torch>=2.3", "torchaudio>=2.3"]
-dev = ["pytest>=8.2", "pytest-cov>=5.0"]
+# Voice cloning. Pulls in torch, so this belongs in a notebook session.
+tts = ["chatterbox-tts", "torch>=2.3", "torchaudio>=2.3"]
+
+# What the LatentSync provider itself needs. The model's own heavy dependency
+# list (insightface, diffusers, mediapipe, ...) is installed by the notebook
+# rather than declared here, because it pins versions that fight Kaggle's
+# preinstalled CUDA stack -- see notebooks/kaggle_render.ipynb.
+lipsync = ["pyyaml>=6.0", "huggingface_hub>=0.30"]
+
+dev = ["pytest>=8.2", "pytest-cov>=5.0", "pytest-timeout>=2.3", "pyyaml>=6.0"]
 
 [project.scripts]
 talkinghead = "talkinghead.cli:app"

@@ -312,6 +312,38 @@ def profiles() -> None:
         typer.echo("")
 
 
+def _build_tts(settings) -> "object":
+    """Construct the TTS provider.
+
+    Imported here rather than at module scope so the CLI still starts on a
+    machine with no torch installed -- `check`, `prep` and `host` must keep
+    working locally.
+    """
+    from talkinghead.tts.chatterbox_local import ChatterboxTTS
+
+    return ChatterboxTTS(device=settings.device)
+
+
+def _build_lipsync(settings, repo_dir: Path, cache_dir: Path | None, steps: int,
+                   num_frames: int | None) -> "object":
+    """Construct the lipsync provider for the active profile."""
+    if settings.lipsync_model is LipsyncModel.MUSETALK:
+        raise typer.BadParameter(
+            "The MuseTalk provider is not built yet. It is the planned "
+            "alternative for the quality bake-off; use --model latentsync."
+        )
+    from talkinghead.lipsync.latentsync import LatentSync
+
+    return LatentSync(
+        profile=settings.active_profile,
+        repo_dir=repo_dir,
+        cache_dir=cache_dir,
+        device=settings.device,
+        inference_steps=steps,
+        num_frames=num_frames,
+    )
+
+
 @app.command()
 def tts(
     script: Annotated[Path, typer.Argument(help="Path to the script text file.")],
@@ -320,43 +352,90 @@ def tts(
     ),
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Synthesize narration only (Phase 2). Runs locally on CPU.
+    """Synthesize narration only — text to a WAV in your cloned voice.
 
-    This is the stage you iterate on while writing a script -- it needs no GPU
-    session.
+    Needs no GPU: Chatterbox runs on CPU, slower than realtime but fine for
+    iterating on wording. This is the cheap half of the pipeline, so get the
+    voice right here before spending GPU quota on video.
     """
     _setup_logging(verbose)
-    typer.secho(
-        "Phase 2 not implemented yet: the Chatterbox provider "
-        "(talkinghead/tts/chatterbox_local.py) has not been built.\n"
-        "Phase 1 delivered script prep, ffmpeg assembly, and the CLI. "
-        "Run 'talkinghead prep' and 'talkinghead check' in the meantime.",
-        fg=typer.colors.YELLOW,
+    settings = load_settings()
+
+    from talkinghead.pipeline import stage_assemble_audio, stage_tts, Cache
+
+    prepared = prepare_script(
+        _read_script(script),
+        max_chars=settings.max_chars_per_segment,
+        sentence_pause_ms=settings.sentence_pause_ms,
+        paragraph_pause_ms=settings.paragraph_pause_ms,
     )
-    raise typer.Exit(2)
+    typer.echo(
+        f"{len(prepared)} segments, ~{prepared.estimated_duration_s():.0f}s estimated"
+    )
+
+    provider = _build_tts(settings)
+    cache = Cache(settings.work_dir / prepared.script_hash, enabled=settings.use_cache)
+
+    segment_wavs = stage_tts(prepared, provider, settings.reference_wav, cache)
+    voice = stage_assemble_audio(
+        prepared, segment_wavs, out, cache,
+        sample_rate=provider.sample_rate, target_lufs=settings.loudness_lufs,
+    )
+
+    info = media.probe(voice)
+    typer.secho(
+        f"\nwrote {voice}  ({info.duration_s:.1f}s @ {info.sample_rate}Hz)",
+        fg=typer.colors.GREEN,
+    )
+    typer.echo(f"segments cached in {cache.root / 'segments'}")
 
 
 @app.command()
 def lipsync(
     audio: Annotated[Path, typer.Option("--audio", "-a", help="Narration WAV.")],
     out: Annotated[Path, typer.Option("--out", "-o")] = Path("out/synced.mp4"),
-    model: Annotated[LipsyncModel, typer.Option("--model")] = LipsyncModel.LATENTSYNC,
+    repo_dir: Annotated[
+        Path, typer.Option("--repo-dir", help="Where to clone LatentSync.")
+    ] = Path("/kaggle/working/LatentSync"),
+    cache_dir: Annotated[
+        Path | None,
+        typer.Option("--cache-dir", help="Pre-downloaded weights; skips a 9.8GB fetch."),
+    ] = None,
+    steps: Annotated[
+        int, typer.Option("--steps", help="Denoising steps. Lower is faster.")
+    ] = 20,
+    num_frames: Annotated[
+        int | None,
+        typer.Option("--num-frames", help="Override the profile's value."),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Run lipsync only (Phase 3). Requires a GPU session.
-
-    Intended to be invoked from the Kaggle notebook, where the narration WAV has
-    been uploaded alongside the base loop.
-    """
+    """Run lipsync only — an existing WAV onto the base loop. Needs a GPU."""
     _setup_logging(verbose)
-    typer.secho(
-        "Phase 3 not implemented yet: the lipsync providers "
-        "(talkinghead/lipsync/latentsync.py, musetalk.py) have not been built.\n"
-        "Phase 0 must confirm LatentSync 1.6 @ 512 fits 16GB VRAM first -- "
-        "see notebooks/phase0_vram_spike.ipynb.",
-        fg=typer.colors.YELLOW,
+    settings = load_settings()
+
+    from talkinghead.pipeline import (
+        Cache,
+        stage_lipsync,
+        stage_prepare_base_video,
     )
-    raise typer.Exit(2)
+
+    narration = media.probe(audio)
+    typer.echo(f"narration is {narration.duration_s:.1f}s")
+
+    cache = Cache(settings.work_dir / "lipsync", enabled=settings.use_cache)
+    base = stage_prepare_base_video(
+        settings.base_loop, narration.duration_s, cache.root / "base.mp4",
+        cache, fps=settings.fps,
+    )
+    provider = _build_lipsync(settings, repo_dir, cache_dir, steps, num_frames)
+    result = stage_lipsync(base, Path(audio), provider, out, cache)
+
+    info = media.probe(result)
+    typer.secho(
+        f"\nwrote {result}  ({info.width}x{info.height}, {info.duration_s:.1f}s)",
+        fg=typer.colors.GREEN,
+    )
 
 
 @app.command()
@@ -364,26 +443,53 @@ def gen(
     script: Annotated[Path, typer.Argument(help="Path to the script text file.")],
     out: Annotated[Path | None, typer.Option("--out", "-o")] = None,
     model: Annotated[LipsyncModel, typer.Option("--model")] = LipsyncModel.LATENTSYNC,
+    repo_dir: Annotated[
+        Path, typer.Option("--repo-dir")
+    ] = Path("/kaggle/working/LatentSync"),
+    cache_dir: Annotated[
+        Path | None,
+        typer.Option("--cache-dir", help="Pre-downloaded weights; skips a 9.8GB fetch."),
+    ] = None,
+    steps: Annotated[
+        int, typer.Option("--steps", help="Denoising steps. Lower is faster.")
+    ] = 20,
+    num_frames: Annotated[
+        int | None, typer.Option("--num-frames", help="Override the profile's value.")
+    ] = None,
     pingpong: Annotated[
         bool, typer.Option("--pingpong", help="Ping-pong the base loop to hide a seam.")
     ] = False,
     no_cache: Annotated[bool, typer.Option("--no-cache")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
-    """Run the full pipeline: text in, video out.
-
-    Requires both providers, so it needs a GPU session. Blocked until Phases 2
-    and 3 land.
-    """
+    """Run the full pipeline: text in, video out. Needs a GPU session."""
     _setup_logging(verbose)
-    typer.secho(
-        "Full pipeline needs both the TTS provider (Phase 2) and a lipsync "
-        "provider (Phase 3); neither is built yet.\n"
-        "Phase 1 is complete: try 'talkinghead check', 'talkinghead prep "
-        "<script>', or 'talkinghead licenses'.",
-        fg=typer.colors.YELLOW,
+    settings = load_settings(lipsync_model=model, use_cache=not no_cache)
+
+    from talkinghead.pipeline import generate
+
+    profile = settings.active_profile
+    typer.echo(
+        f"profile {profile.name} — {profile.output_width}x{profile.output_height}, "
+        f"{profile.face_crop}px crop, num_frames="
+        f"{num_frames if num_frames is not None else profile.num_frames}"
     )
-    raise typer.Exit(2)
+
+    artifacts = generate(
+        script_text=_read_script(script),
+        settings=settings,
+        tts_provider=_build_tts(settings),
+        lipsync_provider=_build_lipsync(
+            settings, repo_dir, cache_dir, steps, num_frames
+        ),
+        out_path=out,
+        pingpong=pingpong,
+    )
+
+    info = media.probe(artifacts.output)
+    typer.secho(f"\nwrote {artifacts.output}", fg=typer.colors.GREEN)
+    typer.echo(f"  {info.width}x{info.height}, {info.duration_s:.1f}s")
+    typer.echo(f"  {artifacts.describe_reuse()}")
 
 
 if __name__ == "__main__":

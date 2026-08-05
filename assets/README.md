@@ -14,15 +14,39 @@ Recorded once, reused for every video.
   NOT filling it. LatentSync regenerates the mouth inside a 512px face crop, so
   a face larger than that gets upscaled and goes soft against the sharp frame.
 - Seated, facing camera, eyes on the lens
-- **Mouth closed / neutral. Do not speak.** Existing speech motion fights the
-  lipsync model and produces double-articulation artifacts.
-- Gentle idle motion only: small head movements, natural blinks
+- **Talk naturally through the whole take.** Read anything at all — the content
+  is irrelevant, because the mouth region gets repainted. What matters is that
+  your jaw and lips are *already moving*.
+
+  > **This reverses earlier guidance in this file.** It originally said "mouth
+  > closed, do not speak," reasoning that existing speech motion would fight the
+  > model. That was wrong for this model family. LatentSync has a documented
+  > failure mode — *lip shape leakage*, where the source mouth shape bleeds into
+  > the output — and its own demo assets are people speaking. A rigidly closed
+  > source mouth appears to bias it toward staying closed, which showed up as a
+  > mouth that barely opened. Run `notebooks/diagnose_lipsync.ipynb` to confirm
+  > on your own footage before re-recording.
+
+- Natural head movement and blinks throughout; stillness reads as uncanny
 - Even, soft, frontal lighting; no harsh shadows across the face
 - Plain background, nothing moving behind you
 - Hands out of frame, hair off the face, watch for glasses glare
 - Start and end in a similar pose so it loops cleanly. If it does not, the
   pipeline falls back to ping-pong looping (forward then reversed), which hides
   the seam at the cost of one visibly reversed motion.
+- Keep the audio track in your recording. The pipeline discards it, but having
+  it makes the file useful for other purposes later.
+
+## `latentsync-weights` — a second, optional dataset
+
+Not a recording, but it belongs in the same place mentally. The LatentSync
+checkpoints are ~9.8 GB and re-downloading them costs 8–12 minutes of *every*
+Kaggle session — the largest single component of render time.
+
+`notebooks/diagnose_lipsync.ipynb` has a final cell that bundles them into
+`checkpoints.tar`. Upload that once as a private dataset named
+`latentsync-weights`, attach it alongside this one, and
+`LatentSync(cache_dir=...)` will link the weights instead of fetching them.
 
 ## `reference.wav`
 

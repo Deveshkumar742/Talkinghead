@@ -189,11 +189,27 @@ def host() -> None:
 
     if info.host is runtime.Host.KAGGLE and not settings.assets_dir.exists():
         typer.secho(
-            f"\n  The asset dataset is not mounted. Attach your private "
-            f"'{settings.kaggle_dataset}' dataset to this notebook via "
-            f"+ Add Input.",
+            f"\n  Expected dataset '{settings.kaggle_dataset}' is not mounted.",
             fg=typer.colors.YELLOW,
         )
+        mounts = info.available_mounts()
+        if mounts:
+            # The usual cause is a slug mismatch rather than a missing dataset,
+            # so show what is really there and how to point at it.
+            typer.echo("  Currently mounted under /kaggle/input:")
+            for name in mounts:
+                typer.echo(f"    - {name}")
+            typer.echo(
+                f"\n  If one of those is yours, point at it with:\n"
+                f"    TH_KAGGLE_DATASET=<name> talkinghead check\n"
+                f"  Kaggle slugifies dataset titles, so the folder name is "
+                f"often not what you typed."
+            )
+        else:
+            typer.echo(
+                "  Nothing is mounted. Attach your private dataset via "
+                "+ Add Input in the notebook sidebar."
+            )
     elif not info.is_cloud:
         typer.secho(
             "\n  Running locally. Compute stages belong in a cloud session -- "

@@ -54,6 +54,19 @@ class HostInfo:
         ffmpeg = "ffmpeg present" if self.has_ffmpeg else "NO ffmpeg"
         return f"{self.host} ({gpu}, {ffmpeg})"
 
+    def available_mounts(self) -> list[str]:
+        """Names of the datasets actually mounted, if the host has an input root.
+
+        Kaggle derives the mount directory from a *slugified* dataset title, so
+        it frequently is not the string you typed -- "Talkinghead Assets"
+        becomes ``talkinghead-assets``, and an underscore stays an underscore.
+        When a lookup misses, showing what is really there is far more useful
+        than repeating the name that failed.
+        """
+        if self.input_root is None or not self.input_root.exists():
+            return []
+        return sorted(p.name for p in self.input_root.iterdir() if p.is_dir())
+
 
 def _detect_host() -> Host:
     """Identify the runtime.

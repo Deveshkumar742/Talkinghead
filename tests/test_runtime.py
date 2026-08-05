@@ -102,6 +102,43 @@ class TestKaggleSettings:
         assert load_settings().kaggle_mode() is True
 
 
+class TestAvailableMounts:
+    """Listing the real mounts is the fix for a slugified dataset name.
+
+    Kaggle turns a dataset *title* into a directory name, so the folder is
+    frequently not the string the user typed. Reporting what is actually mounted
+    turns a dead end into a one-line fix.
+    """
+
+    def _info(self, input_root):
+        return runtime.HostInfo(
+            host=Host.KAGGLE,
+            has_ffmpeg=True,
+            has_gpu=True,
+            input_root=input_root,
+            work_root=Path("/tmp"),
+        )
+
+    def test_lists_mounted_dataset_directories_sorted(self, tmp_path):
+        (tmp_path / "talkinghead-assets").mkdir()
+        (tmp_path / "some-other-dataset").mkdir()
+        assert self._info(tmp_path).available_mounts() == [
+            "some-other-dataset",
+            "talkinghead-assets",
+        ]
+
+    def test_ignores_loose_files(self, tmp_path):
+        (tmp_path / "a-dataset").mkdir()
+        (tmp_path / "stray.txt").write_text("x")
+        assert self._info(tmp_path).available_mounts() == ["a-dataset"]
+
+    def test_empty_when_no_input_root(self):
+        assert self._info(None).available_mounts() == []
+
+    def test_empty_when_input_root_does_not_exist(self, tmp_path):
+        assert self._info(tmp_path / "nope").available_mounts() == []
+
+
 class TestFfmpegGuidance:
     def test_help_leads_with_kaggle(self):
         # The first mentioned option should be the supported one.

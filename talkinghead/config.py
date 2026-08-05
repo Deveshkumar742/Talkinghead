@@ -242,6 +242,40 @@ class Settings(BaseSettings):
 _ASSET_SEARCH_DEPTH = 2
 
 
+def find_dataset_mount(input_root: Path, slug: str) -> Path | None:
+    """Locate a mounted Kaggle dataset directory.
+
+    Kaggle does not use a single stable layout. Observed in practice:
+
+    * ``/kaggle/input/<slug>``                  -- the classic layout
+    * ``/kaggle/input/datasets/<owner>/<slug>`` -- seen in current sessions
+
+    Both are checked, then a bounded search for any directory matching the slug.
+    Returns ``None`` when nothing matches, so callers can list what *is* mounted
+    instead of reporting a path that was never going to exist.
+    """
+    if not input_root.exists():
+        return None
+
+    direct = input_root / slug
+    if direct.is_dir():
+        return direct
+
+    # datasets/<owner>/<slug>
+    for candidate in sorted(input_root.glob(f"datasets/*/{slug}")):
+        if candidate.is_dir():
+            return candidate
+
+    # Any directory with this name, one or two levels down. Bounded so a stray
+    # match deep inside someone else's attached dataset is not adopted.
+    for pattern in (f"*/{slug}", f"*/*/{slug}"):
+        for candidate in sorted(input_root.glob(pattern)):
+            if candidate.is_dir():
+                return candidate
+
+    return None
+
+
 def find_asset(mount: Path, filename: str) -> Path:
     """Locate ``filename`` inside a mounted dataset.
 
@@ -287,8 +321,8 @@ def load_settings(**overrides: object) -> Settings:
     host = detect()
 
     if host.host is Host.KAGGLE:
-        mount = Path("/kaggle/input") / settings.kaggle_dataset
-        if mount.exists():
+        mount = find_dataset_mount(Path("/kaggle/input"), settings.kaggle_dataset)
+        if mount is not None:
             settings.assets_dir = mount
             settings.base_loop = find_asset(mount, "base_loop.mp4")
             settings.reference_wav = find_asset(mount, "reference.wav")

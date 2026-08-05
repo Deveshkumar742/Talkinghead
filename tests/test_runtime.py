@@ -127,6 +127,24 @@ class TestAvailableMounts:
             "talkinghead-assets",
         ]
 
+    def test_descends_the_datasets_owner_level(self, tmp_path):
+        # Listing the top level alone would report a useless "datasets" entry
+        # and hide the real slug -- which is the layout a live session used.
+        (tmp_path / "datasets" / "deveshkumar742" / "talkinghead-assets").mkdir(
+            parents=True
+        )
+        assert self._info(tmp_path).available_mounts() == [
+            "datasets/deveshkumar742/talkinghead-assets"
+        ]
+
+    def test_reports_both_layouts_together(self, tmp_path):
+        (tmp_path / "classic-dataset").mkdir()
+        (tmp_path / "datasets" / "owner" / "nested-dataset").mkdir(parents=True)
+        assert self._info(tmp_path).available_mounts() == [
+            "classic-dataset",
+            "datasets/owner/nested-dataset",
+        ]
+
     def test_ignores_loose_files(self, tmp_path):
         (tmp_path / "a-dataset").mkdir()
         (tmp_path / "stray.txt").write_text("x")

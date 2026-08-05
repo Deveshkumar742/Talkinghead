@@ -17,6 +17,7 @@ from talkinghead.config import (
     Settings,
     assert_commercially_licensed,
     find_asset,
+    find_dataset_mount,
     load_settings,
 )
 
@@ -72,6 +73,48 @@ class TestTrustedSources:
     @pytest.mark.parametrize("key,src", sorted(TRUSTED_SOURCES.items()))
     def test_every_source_is_pinned(self, key, src):
         assert src.revision, f"{key} has no pinned revision"
+
+
+class TestFindDatasetMount:
+    """Kaggle has more than one mount layout, confirmed the hard way.
+
+    A real session mounted the dataset at
+    ``/kaggle/input/datasets/deveshkumar742/talkinghead-assets/`` rather than the
+    documented ``/kaggle/input/talkinghead-assets/``. Checking only the classic
+    path silently found nothing.
+    """
+
+    def test_finds_classic_layout(self, tmp_path):
+        (tmp_path / "talkinghead-assets").mkdir()
+        found = find_dataset_mount(tmp_path, "talkinghead-assets")
+        assert found == tmp_path / "talkinghead-assets"
+
+    def test_finds_owner_nested_layout(self, tmp_path):
+        nested = tmp_path / "datasets" / "deveshkumar742" / "talkinghead-assets"
+        nested.mkdir(parents=True)
+        assert find_dataset_mount(tmp_path, "talkinghead-assets") == nested
+
+    def test_prefers_classic_over_nested(self, tmp_path):
+        classic = tmp_path / "talkinghead-assets"
+        classic.mkdir()
+        (tmp_path / "datasets" / "someone" / "talkinghead-assets").mkdir(parents=True)
+        assert find_dataset_mount(tmp_path, "talkinghead-assets") == classic
+
+    def test_returns_none_when_absent(self, tmp_path):
+        (tmp_path / "unrelated-dataset").mkdir()
+        assert find_dataset_mount(tmp_path, "talkinghead-assets") is None
+
+    def test_returns_none_when_input_root_missing(self, tmp_path):
+        assert find_dataset_mount(tmp_path / "nope", "talkinghead-assets") is None
+
+    def test_ignores_a_file_with_the_slug_name(self, tmp_path):
+        (tmp_path / "talkinghead-assets").write_text("not a directory")
+        assert find_dataset_mount(tmp_path, "talkinghead-assets") is None
+
+    def test_does_not_search_unbounded_depth(self, tmp_path):
+        deep = tmp_path / "a" / "b" / "c" / "talkinghead-assets"
+        deep.mkdir(parents=True)
+        assert find_dataset_mount(tmp_path, "talkinghead-assets") is None
 
 
 class TestFindAsset:

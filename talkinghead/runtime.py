@@ -55,17 +55,39 @@ class HostInfo:
         return f"{self.host} ({gpu}, {ffmpeg})"
 
     def available_mounts(self) -> list[str]:
-        """Names of the datasets actually mounted, if the host has an input root.
+        """Paths of the datasets actually mounted, relative to the input root.
 
-        Kaggle derives the mount directory from a *slugified* dataset title, so
-        it frequently is not the string you typed -- "Talkinghead Assets"
-        becomes ``talkinghead-assets``, and an underscore stays an underscore.
-        When a lookup misses, showing what is really there is far more useful
+        Two reasons this is not a simple ``iterdir``:
+
+        1. Kaggle derives the mount directory from a *slugified* dataset title,
+           so it frequently is not the string you typed.
+        2. Kaggle has more than one layout. ``/kaggle/input/<slug>`` is the
+           classic one, but current sessions also use
+           ``/kaggle/input/datasets/<owner>/<slug>``. Listing only the top level
+           reports a useless ``datasets`` entry and hides the real name.
+
+        When a lookup misses, showing what is genuinely there is far more useful
         than repeating the name that failed.
         """
         if self.input_root is None or not self.input_root.exists():
             return []
-        return sorted(p.name for p in self.input_root.iterdir() if p.is_dir())
+
+        names: list[str] = []
+        for entry in sorted(self.input_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            if entry.name == "datasets":
+                # Descend the owner level to reach the actual dataset slugs.
+                for owner in sorted(entry.iterdir()):
+                    if owner.is_dir():
+                        names.extend(
+                            f"datasets/{owner.name}/{d.name}"
+                            for d in sorted(owner.iterdir())
+                            if d.is_dir()
+                        )
+            else:
+                names.append(entry.name)
+        return names
 
 
 def _detect_host() -> Host:

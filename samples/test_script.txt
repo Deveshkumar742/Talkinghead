@@ -1,0 +1,8 @@
+Hi, I'm Devesh. This is a twenty second test clip, and its only job is to let me
+judge whether this pipeline is good enough to put in front of a client.
+
+I'm watching three things. Does the mouth actually track the words, especially on
+plosives like "p" and "b"? Do the teeth hold up at full resolution, or go soft?
+And does the voice sound like me, rather than like a decent impression of me?
+
+If all three land, we scale this up. If not, we know exactly which stage to fix.
